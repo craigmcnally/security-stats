@@ -1,0 +1,112 @@
+{
+  "mappings": {
+    "properties": {
+      "date": {
+        "type": "date",
+        "format": "strict_date_hour_minute"
+      },
+      "identifiers": {
+        "properties": {
+          "CVE": {
+            "type": "keyword"
+          },
+          "CWE": {
+            "type": "keyword"
+          },
+          "GHSA": {
+            "type": "keyword"
+          },
+          "GO": {
+            "type": "keyword"
+          },
+          "NSP": {
+            "type": "keyword"
+          },
+          "PVE": {
+            "type": "keyword"
+          },
+          "Sonatype": {
+            "type": "keyword"
+          },
+          "id": {
+            "type": "keyword"
+          }
+        }
+      },
+      "isNew": {
+        "type": "boolean"
+      },
+      "name": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "overview": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "project": {
+        "properties": {
+          "id": {
+            "type": "keyword"
+          },
+          "name": {
+            "type": "keyword"
+          },
+          "origin": {
+            "type": "keyword"
+          },
+          "targetFile": {
+            "type": "keyword"
+          },
+          "type": {
+            "type": "keyword"
+          },
+          "url": {
+            "type": "keyword"
+          }
+        }
+      },
+      "published": {
+        "type": "date"
+      },
+      "severity": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      },
+      "target": {
+        "properties": {
+          "id": {
+            "type": "keyword"
+          },
+          "name": {
+            "type": "keyword"
+          }
+        }
+      },
+      "title": {
+        "type": "text",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
+      }
+    }
+  }
+}

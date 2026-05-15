@@ -1,0 +1,21 @@
+{
+  "fields": {
+    "project": {
+      "key": "SECURITY"
+    },
+    "issuetype": {
+      "name": "Task"
+    },
+    "summary": "{{CVE}} - {{AFFECTING}} - {{TITLE}}",
+    "description": "{{DESCRIPTION}}",
+    "labels": [
+      "security"
+    ],
+    "security": {
+      "id": "10005"
+    },
+    "priority": {
+      "name": "TBD"
+    }
+  }
+}

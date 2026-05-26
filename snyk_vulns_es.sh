@@ -178,7 +178,7 @@ if [[ -z "${1:-}" ]]; then
 
         while IFS= read -r line; do
           echo "{ \"index\" : { \"_index\" : \"${ES_INDEX}\" } }" >> ${OUT_ES}
-          echo ${line}  >> ${OUT_ES}
+          echo "${line}"  >> ${OUT_ES}
         done < /tmp/scratch.${TARGET_ID}.${PROJECT_ID}.${SNAPSHOT_ID}
       done
     done

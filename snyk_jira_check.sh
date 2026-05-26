@@ -252,7 +252,7 @@ for FILE in "${CVE_FILES[@]}"; do
 
   # Search JIRA
   MATCHING=`jira_search "${CVE}" "${SNYK_ID}" "${GHSA}"`
-  MATCH_COUNT=`echo ${MATCHING} | jq '. | length //0'`
+  MATCH_COUNT=`echo "${MATCHING}" | jq '. | length //0'`
 
   if [[ "${MATCH_COUNT}" -gt 0 ]]; then
     FOUND=$((FOUND + 1))

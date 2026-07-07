@@ -64,7 +64,12 @@ GHSA=$(echo "${FIRST_DOC}"      | jq -r '.identifiers.GHSA // "" | if type == "a
 SEVERITY=$(echo "${FIRST_DOC}"  | jq -r '.severity // "unknown"')
 AFFECTING=$(echo "${FIRST_DOC}" | jq -r '.name // ""')
 TITLE=$(echo "${FIRST_DOC}"     | jq -r '.title // ""')
-OVERVIEW=$(echo "${FIRST_DOC}"  | jq -r '.overview // ""' | sed 's/^## Overview$//' | sed '/^$/d; 1{/^$/d}')
+OVERVIEW=$(echo "${FIRST_DOC}"  | jq -r '.overview // ""' | sed 's/^## Overview$//' | sed '/^$/d')
+
+if [[ "${OVERVIEW}" == "" ]]; then
+  echo "No overview found, retrieving one from nvd.nist.gov..."
+  OVERVIEW=$(curl -s "https://services.nvd.nist.gov/rest/json/cves/2.0?cveIds=${CVE}" | jq -r '.vulnerabilities[0].cve.descriptions[0].value // ""' | sed '/^$/d')
+fi
 
 # ------------------------------------------------------------
 # Build LINKS bullet list

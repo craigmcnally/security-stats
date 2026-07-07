@@ -199,7 +199,7 @@ jira_search() {
 
   QUERY="${QUERY} ORDER BY created DESC"
 
-  curl -sG "${JIRA_BASE_URL}/rest/api/3/search/jql" \
+  curl --retry 3 --retry-delay 1 --retry-connrefused --retry-all-errors -sG "${JIRA_BASE_URL}/rest/api/3/search/jql" \
     -H "${JIRA_AUTH}" \
     -H "Content-Type: application/json" \
     --data-urlencode "jql=${QUERY}" \

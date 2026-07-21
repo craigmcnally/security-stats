@@ -160,21 +160,22 @@ while IFS= read -r SNYK_ID; do
 
   # Extract first CVE from the first document
   CVE=`echo "${DOCS}" | jq -r '.[0].identifiers.CVE | if type == "array" then .[0] elif type == "string" then . else null end // empty'`
+  GHSA=`echo "${DOCS}" | jq -r '.[0].identifiers.GHSA | if type == "array" then .[0] elif type == "string" then . else null end // empty'`
 
-  if [[ -z "${CVE:-}" ]]; then
+  if [[ -z "${CVE:-}" && -z "${GHSA:-}" ]]; then
     SKIPPED=$((SKIPPED + 1))
-    echo "[${COUNT}/${TOTAL_VULNS}] SKIP ${SNYK_ID} (no CVE)"
+    echo "[${COUNT}/${TOTAL_VULNS}] SKIP ${SNYK_ID} (no CVE or GHSA)"
     continue
   fi
 
-  OUTPUT_FILE="${TMPDIR}/${CVE}.json"
+  OUTPUT_FILE="${TMPDIR}/${CVE:-${GHSA}}.json"
   echo "${DOCS}" > "${OUTPUT_FILE}"
   echo "[${COUNT}/${TOTAL_VULNS}] Saved ${SNYK_ID} -> ${OUTPUT_FILE}"
 
 done <<< "${VULN_IDS}"
 
 echo ""
-echo "Phase 1 complete. $((COUNT - SKIPPED)) CVE files written, ${SKIPPED} skipped (no CVE)."
+echo "Phase 1 complete. $((COUNT - SKIPPED)) CVE files written, ${SKIPPED} skipped (no CVE or GHSA)."
 
 # ============================================================
 # PHASE 2: Check each CVE file against Jira
@@ -226,24 +227,25 @@ append_to_severity_file() {
   mv "${tmp}" "${file}"
 }
 
-CVE_FILES=("${TMPDIR}"/CVE-*.json)
+VULN_FILES=("${TMPDIR}"/{CVE,GHSA}-*.json)
 
-if [[ ${#CVE_FILES[@]} -eq 0 ]] || [[ ! -f "${CVE_FILES[0]}" ]]; then
-  echo "No CVE files found in ${TMPDIR}."
+if [[ ${#VULN_FILES[@]} -eq 0 ]] || [[ ! -f "${VULN_FILES[0]}" ]]; then
+  echo "No CVE/GHSA files found in ${TMPDIR}."
   exit 0
 fi
 
-TOTAL_CVES=${#CVE_FILES[@]}
+TOTAL_VULNS=${#VULN_FILES[@]}
 COUNT=0
 MISSING=0
 FOUND=0
 
-for FILE in "${CVE_FILES[@]}"; do
-  CVE=$(basename "${FILE}" .json)
+for FILE in "${VULN_FILES[@]}"; do
+  VULN=$(basename "${FILE}" .json)
   COUNT=$((COUNT + 1))
 
   FIRST_DOC=$(jq '.[0] // {}' "${FILE}")
 
+  CVE=`echo "${FIRST_DOC}"  | jq -r '.identifiers.CVE // .identifiers.id // "" | if type == "array" then .[0] else . end // ""'`
   SNYK_ID=`echo "${FIRST_DOC}"  | jq -r '.identifiers.ID // .identifiers.id // "" | if type == "array" then .[0] else . end // ""'`
   GHSA=`echo "${FIRST_DOC}"     | jq -r '.identifiers.GHSA // .identifiers.ghsa // "" | if type == "array" then .[0] else . end // ""'`
   SEVERITY=`echo "${FIRST_DOC}" | jq -r '.severity'`
@@ -256,10 +258,10 @@ for FILE in "${CVE_FILES[@]}"; do
 
   if [[ "${MATCH_COUNT}" -gt 0 ]]; then
     FOUND=$((FOUND + 1))
-    echo "[${COUNT}/${TOTAL_CVES}] FOUND   ${CVE} (${SEVERITY}) - ${MATCHING}"
+    echo "[${COUNT}/${TOTAL_VULNS}] FOUND   ${VULN} (${SEVERITY}) - ${MATCHING}"
   else
     MISSING=$((MISSING + 1))
-    echo "[${COUNT}/${TOTAL_CVES}] MISSING ${CVE} (${SEVERITY})"
+    echo "[${COUNT}/${TOTAL_VULNS}] MISSING ${VULN} (${SEVERITY})"
 
     RECORD=`jq -n \
       --arg cve       "${CVE}" \
@@ -286,7 +288,7 @@ done
 # ------------------------------------------------------------
 echo ""
 echo "=== Summary ==="
-echo "CVEs checked : ${TOTAL_CVES}"
+echo "CVEs/GHSAs checked : ${TOTAL_VULNS}"
 echo "Found in Jira: ${FOUND}"
 echo "Missing      : ${MISSING}"
 echo ""
@@ -296,7 +298,7 @@ N_MEDIUM=`jq 'length' "${MEDIUM_FILE}"`
 N_LOW=`jq 'length' "${LOW_FILE}"`
 N_TOTAL=$((N_CRITICAL + N_HIGH + N_MEDIUM + N_LOW))
 
-echo "Missing CVEs by severity:"
+echo "Missing CVEs/GHSAs by severity:"
 printf "%4d critical\n" "${N_CRITICAL}"
 printf "%4d high\n"     "${N_HIGH}"
 printf "%4d medium\n"   "${N_MEDIUM}"

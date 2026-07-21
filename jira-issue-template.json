@@ -6,7 +6,7 @@
     "issuetype": {
       "name": "Task"
     },
-    "summary": "{{CVE}} - {{AFFECTING}} - {{TITLE}}",
+    "summary": "{{VULN}} - {{AFFECTING}} - {{TITLE}}",
     "description": "{{DESCRIPTION}}",
     "labels": [
       "security"

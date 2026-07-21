@@ -4,33 +4,34 @@ set -euo pipefail
 # ============================================================
 # create_jira_issue.sh
 #
-# Reads a CVE file produced by snyk_jira_check.sh, builds a
+# Reads a vulnerability file produced by snyk_jira_check.sh, builds a
 # Jira issue body from jira-issue-template.json, shows a
 # draft for review, then creates the issue in the SECURITY
 # project on folio-org.atlassian.net.
 #
-# Usage: ./create_jira_issue.sh <CVE-ID>
+# Usage: ./create_jira_issue.sh <VULN-ID>
 #   e.g. ./create_jira_issue.sh CVE-2024-12345
 # ============================================================
 
 JIRA_BASE_URL="https://folio-org.atlassian.net"
-CVE_DIR="${CVE_DIR:-/tmp/snyk_cve_files}"
+VULN_DIR="${VULN_DIR:-/tmp/snyk_cve_files}"
 TEMPLATE_FILE="${TEMPLATE_FILE:-$(dirname "$0")/jira-issue-template.json}"
 
 # ------------------------------------------------------------
 # Validate arguments
 # ------------------------------------------------------------
 if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <CVE-ID>" >&2
+  echo "Usage: $0 <VULN-ID>" >&2
   echo "  e.g. $0 CVE-2024-12345" >&2
+  echo "  e.g. $0 GHSA-aaaa-bbbb-cccc" >&2
   exit 1
 fi
 
-CVE="$1"
-CVE_FILE="${CVE_DIR}/${CVE}.json"
+VULN="$1"
+VULN_FILE="${VULN_DIR}/${VULN}.json"
 
-if [[ ! -f "${CVE_FILE}" ]]; then
-  echo "Error: CVE file not found: ${CVE_FILE}" >&2
+if [[ ! -f "${VULN_FILE}" ]]; then
+  echo "Error: Vulnerability file not found: ${VULN_FILE}" >&2
   exit 1
 fi
 
@@ -57,25 +58,36 @@ JIRA_AUTH="Authorization: Basic $(echo -n "${JIRA_USER}:${JIRA_API_TOKEN}" | bas
 # ------------------------------------------------------------
 # Extract fields from CVE file
 # ------------------------------------------------------------
-FIRST_DOC=$(jq '.[0]' "${CVE_FILE}")
+FIRST_DOC=$(jq '.[0]' "${VULN_FILE}")
 
 SNYK_ID=$(echo "${FIRST_DOC}"   | jq -r '.identifiers.id // .identifiers.ID // "" | if type == "array" then .[0] else . end // ""')
+CVE=$(echo "${FIRST_DOC}"       | jq -r '.identifiers.CVE // "" | if type == "array" then .[0] else . end // ""')
 GHSA=$(echo "${FIRST_DOC}"      | jq -r '.identifiers.GHSA // "" | if type == "array" then .[0] else . end // ""')
 SEVERITY=$(echo "${FIRST_DOC}"  | jq -r '.severity // "unknown"')
 AFFECTING=$(echo "${FIRST_DOC}" | jq -r '.name // ""')
 TITLE=$(echo "${FIRST_DOC}"     | jq -r '.title // ""')
 OVERVIEW=$(echo "${FIRST_DOC}"  | jq -r '.overview // ""' | sed 's/^## Overview$//' | sed '/^$/d')
 
-if [[ "${OVERVIEW}" == "" ]]; then
+if [[ "${OVERVIEW}" == "" && "${CVE}" != "" ]]; then
   echo "No overview found, retrieving one from nvd.nist.gov..."
   OVERVIEW=$(curl -s "https://services.nvd.nist.gov/rest/json/cves/2.0?cveIds=${CVE}" | jq -r '.vulnerabilities[0].cve.descriptions[0].value // ""' | sed '/^$/d')
+fi
+
+if [[ "${OVERVIEW}" == "" && "${GHSA}" != "" ]]; then
+  echo "No overview found, retrieving one from GitHub..."
+  DESCRIPTION=$(curl -s "https://api.github.com/advisories/${GHSA}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" | jq -r '.[0].description // ""')
+  DELIM="## Impact"
+  OVERVIEW=$(echo "${DESCRIPTION%%$DELIM*}" | sed 's/^## Summary//' | sed '/^$/d')
 fi
 
 # ------------------------------------------------------------
 # Build LINKS bullet list
 # ------------------------------------------------------------
 LINKS="* https://security.snyk.io/vuln/${SNYK_ID}"
-LINKS+=$'\n'"* https://nvd.nist.gov/vuln/detail/${CVE}"
+if [[ -n "${CVE}" ]]; then 
+  LINKS+=$'\n'"* https://nvd.nist.gov/vuln/detail/${CVE}"
+fi
+
 if [[ -n "${GHSA}" ]]; then
   LINKS+=$'\n'"* https://github.com/advisories/${GHSA}"
 fi
@@ -87,7 +99,7 @@ MODULES_IMPACTED=""
 while IFS= read -r NAME; do
   [[ -z "${NAME}" ]] && continue
   MODULES_IMPACTED+="| ${NAME} |"$'\n'
-done < <(jq -r '.[].project.name // "" | select(. != "")' "${CVE_FILE}" | sort -u)
+done < <(jq -r '.[].project.name // "" | select(. != "")' "${VULN_FILE}" | sort -u)
 
 if [[ -z "${MODULES_IMPACTED}" ]]; then
   MODULES_IMPACTED="| (none) |"$'\n'
@@ -97,11 +109,11 @@ fi
 # Build summary and description using jq for safe JSON encoding
 # ------------------------------------------------------------
 SUMMARY=`jq -rn \
-  --arg cve       "${CVE}" \
+  --arg vuln      "${VULN}" \
   --arg affecting "${AFFECTING}" \
   --arg title     "${TITLE}" \
-  '"{{CVE}} - {{AFFECTING}} - {{TITLE}}"
-   | gsub("{{CVE}}";       $cve)
+  '"{{VULN}} - {{AFFECTING}} - {{TITLE}}"
+   | gsub("{{VULN}}";       $vuln)
    | gsub("{{AFFECTING}}"; $affecting)
    | gsub("{{TITLE}}";     $title)'`
 

@@ -13,7 +13,8 @@ set -euo pipefail
 #   e.g. ./create_jira_issue.sh CVE-2024-12345
 # ============================================================
 
-JIRA_BASE_URL="https://folio-org.atlassian.net"
+JIRA_BASE_URL="https://api.atlassian.com"
+JIRA_CLOUD_ID="${JIRA_CLOUD_ID:-11f731c9-c476-4b99-a086-9ad1c7425130}"
 VULN_DIR="${VULN_DIR:-/tmp/snyk_cve_files}"
 TEMPLATE_FILE="${TEMPLATE_FILE:-$(dirname "$0")/jira-issue-template.json}"
 
@@ -167,7 +168,7 @@ fi
 echo ""
 echo "Creating Jira issue..."
 
-RESPONSE=`curl -XPOST "${JIRA_BASE_URL}/rest/api/2/issue" \
+RESPONSE=`curl -XPOST "${JIRA_BASE_URL}/ex/jira/${JIRA_CLOUD_ID}/rest/api/2/issue" \
   -H "${JIRA_AUTH}" \
   -H "Content-Type: application/json" \
   -sd "${PAYLOAD}"`

@@ -17,7 +17,8 @@ ES_HOST="${ES_HOST:-http://localhost:9200}"
 ES_INDEX="${ES_INDEX:-snyk_vulnerabilities}"
 
 ## Jira
-JIRA_BASE_URL="https://folio-org.atlassian.net"
+JIRA_BASE_URL="https://api.atlassian.com"
+JIRA_CLOUD_ID="${JIRA_CLOUD_ID:-11f731c9-c476-4b99-a086-9ad1c7425130}"
 
 #================================================================
 
@@ -77,7 +78,7 @@ fi
 # ------------------------------------------------------------
 echo "Checking access to JIRA..."
 
-HTTP_CODE=`curl -G "${JIRA_BASE_URL}/rest/api/3/myself" -H "${JIRA_AUTH}" -sko /dev/null -w "%{http_code}"`
+HTTP_CODE=`curl -G "${JIRA_BASE_URL}/ex/jira/${JIRA_CLOUD_ID}/rest/api/3/issue/SECURITY-1" -H "${JIRA_AUTH}" -sko /dev/null -w "%{http_code}"`
 if [[ ${HTTP_CODE} -ne 200 ]]; then 
   echo "Error: Call to JIRA  failed:  ${JIRA_BASE_URL} (${HTTP_CODE})" >&2
   exit 1
@@ -199,8 +200,7 @@ jira_search() {
   fi
 
   QUERY="${QUERY} ORDER BY created DESC"
-
-  curl --retry 3 --retry-delay 1 --retry-connrefused --retry-all-errors -sG "${JIRA_BASE_URL}/rest/api/3/search/jql" \
+  curl --retry 3 --retry-delay 1 --retry-connrefused --retry-all-errors -sG "${JIRA_BASE_URL}/ex/jira/${JIRA_CLOUD_ID}/rest/api/3/search/jql" \
     -H "${JIRA_AUTH}" \
     -H "Content-Type: application/json" \
     --data-urlencode "jql=${QUERY}" \

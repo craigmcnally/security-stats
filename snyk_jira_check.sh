@@ -31,9 +31,33 @@ MEDIUM_FILE="${OUTPUT_DIR}/medium.json"
 LOW_FILE="${OUTPUT_DIR}/low.json"
 
 # ------------------------------------------------------------
+# Parse arguments
+# ------------------------------------------------------------
+SKIP_PHASE1=false
+
+usage() {
+  cat <<EOF
+Usage: $0 [-s]
+
+  -s   Skip Phase 1 (Elasticsearch fetch) and reuse the CVE/GHSA files
+       already present in ${TMPDIR} from a previous run. Only Phase 2
+       (Jira check) is performed.
+  -h   Show this help message.
+EOF
+}
+
+while getopts ":sh" opt; do
+  case "${opt}" in
+    s) SKIP_PHASE1=true ;;
+    h) usage; exit 0 ;;
+    \?) echo "Unknown option: -${OPTARG}" >&2; usage; exit 1 ;;
+  esac
+done
+
+# ------------------------------------------------------------
 # Validate required environment variables
 # ------------------------------------------------------------
-if [[ -z "${ES_API_KEY:-}" ]]; then
+if [[ "${SKIP_PHASE1}" != true && -z "${ES_API_KEY:-}" ]]; then
   echo "Error: ES_API_KEY environment variable is not set." >&2
   exit 1
 fi
@@ -48,29 +72,46 @@ if [[ -z "${JIRA_USER:-}" ]]; then
   exit 1
 fi
 
-ES_AUTH="Authorization: ApiKey ${ES_API_KEY}"
+ES_AUTH="Authorization: ApiKey ${ES_API_KEY:-}"
 JIRA_AUTH="Authorization: Basic $(echo -n "${JIRA_USER}:${JIRA_API_TOKEN}" | base64 -w0)"
 
 # ------------------------------------------------------------
 # Clean up and recreate working directories
+#
+# TMPDIR holds the per-CVE/GHSA files written by Phase 1. When Phase 1
+# is skipped, those files are the input to Phase 2, so they must survive
+# across runs and are NOT removed here.
 # ------------------------------------------------------------
-echo "Cleaning up previous run artifacts..."
-rm -rf "${TMPDIR}" "${OUTPUT_DIR}"
-mkdir -p "${TMPDIR}" "${OUTPUT_DIR}"
+if [[ "${SKIP_PHASE1}" == true ]]; then
+  echo "Skipping Phase 1 cleanup; reusing existing files in ${TMPDIR}."
+  if [[ ! -d "${TMPDIR}" ]]; then
+    echo "Error: -s given but ${TMPDIR} does not exist. Run without -s first." >&2
+    exit 1
+  fi
+  echo "Cleaning up previous Phase 2 output..."
+  rm -rf "${OUTPUT_DIR}"
+  mkdir -p "${OUTPUT_DIR}"
+else
+  echo "Cleaning up previous run artifacts..."
+  rm -rf "${TMPDIR}" "${OUTPUT_DIR}"
+  mkdir -p "${TMPDIR}" "${OUTPUT_DIR}"
+fi
 
 echo "[]" > "${CRITICAL_FILE}"
 echo "[]" > "${HIGH_FILE}"
 echo "[]" > "${MEDIUM_FILE}"
 echo "[]" > "${LOW_FILE}"
 
-# ------------------------------------------------------------
-# Check access to Elasticsearch
-# ------------------------------------------------------------
-echo "Checking access to Elasticsearch..."
-HTTP_CODE=`curl ${ES_HOST}/${ES_INDEX} -H "${ES_AUTH}" -sko /dev/null -w "%{http_code}"`
-if [[ ${HTTP_CODE} -ne 200 ]]; then 
-  echo "Error: Call to Elasticsearch failed:  ${ES_HOST}/${ES_INDEX} (${HTTP_CODE})" >&2
-  exit 1
+if [[ "${SKIP_PHASE1}" != true ]]; then
+  # ------------------------------------------------------------
+  # Check access to Elasticsearch
+  # ------------------------------------------------------------
+  echo "Checking access to Elasticsearch..."
+  HTTP_CODE=`curl ${ES_HOST}/${ES_INDEX} -H "${ES_AUTH}" -sko /dev/null -w "%{http_code}"`
+  if [[ ${HTTP_CODE} -ne 200 ]]; then
+    echo "Error: Call to Elasticsearch failed:  ${ES_HOST}/${ES_INDEX} (${HTTP_CODE})" >&2
+    exit 1
+  fi
 fi
 
 # ------------------------------------------------------------
@@ -83,6 +124,11 @@ if [[ ${HTTP_CODE} -ne 200 ]]; then
   echo "Error: Call to JIRA  failed:  ${JIRA_BASE_URL} (${HTTP_CODE})" >&2
   exit 1
 fi
+
+if [[ "${SKIP_PHASE1}" == true ]]; then
+  echo ""
+  echo "=== Phase 1: Skipped (-s given); reusing files in ${TMPDIR} ==="
+else
 
 # ============================================================
 # PHASE 1: Fetch vulnerabilities from Elasticsearch
@@ -177,6 +223,8 @@ done <<< "${VULN_IDS}"
 
 echo ""
 echo "Phase 1 complete. $((COUNT - SKIPPED)) CVE files written, ${SKIPPED} skipped (no CVE or GHSA)."
+
+fi
 
 # ============================================================
 # PHASE 2: Check each CVE file against Jira

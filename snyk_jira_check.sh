@@ -136,78 +136,78 @@ else
 echo ""
 echo "=== Phase 1: Fetching vulnerabilities from Elasticsearch ==="
 
-UNIQUE_IDS_RESPONSE=`curl -s -XPOST "${ES_HOST}/${ES_INDEX}/_search" \
+# Bulk-fetch every document for today in one pass (via the scroll API, since
+# the result set can exceed the 10k index.max_result_window), instead of
+# issuing a separate _search per unique Snyk ID.
+SCROLL_TTL="1m"
+BATCH_SIZE=5000
+
+ALL_DOCS_FILE=$(mktemp)
+echo "[]" > "${ALL_DOCS_FILE}"
+
+RESPONSE=`curl -s -XPOST "${ES_HOST}/${ES_INDEX}/_search?scroll=${SCROLL_TTL}" \
   -H "${ES_AUTH}" \
   -H "Content-Type: application/json" \
-  -d '{
-    "size": 0,
-    "query": {
-      "range": {
-        "date": {
-          "gte": "now/d",
-          "lte": "now/d"
-        }
-      }
-    },
-    "aggs": {
-      "unique_vuln_ids": {
-        "terms": {
-          "field": "identifiers.id",
-          "size": 10000
+  -d "{
+    \"size\": ${BATCH_SIZE},
+    \"query\": {
+      \"range\": {
+        \"date\": {
+          \"gte\": \"now/d\",
+          \"lte\": \"now/d\"
         }
       }
     }
-  }'`
+  }"`
 
-VULN_IDS=`echo "${UNIQUE_IDS_RESPONSE}" | jq -r '.aggregations.unique_vuln_ids.buckets[].key'`
+SCROLL_ID=`echo "${RESPONSE}" | jq -r '._scroll_id // empty'`
+HITS=`echo "${RESPONSE}" | jq -c '[.hits.hits[]._source]'`
 
-if [[ -z "${VULN_IDS}" ]]; then
+while [[ $(echo "${HITS}" | jq 'length') -gt 0 ]]; do
+  TMP=$(mktemp)
+  jq -c -s '.[0] + .[1]' "${ALL_DOCS_FILE}" <(echo "${HITS}") > "${TMP}"
+  mv "${TMP}" "${ALL_DOCS_FILE}"
+
+  [[ -z "${SCROLL_ID}" ]] && break
+
+  RESPONSE=`curl -s -XPOST "${ES_HOST}/_search/scroll" \
+    -H "${ES_AUTH}" \
+    -H "Content-Type: application/json" \
+    -d "{\"scroll\": \"${SCROLL_TTL}\", \"scroll_id\": \"${SCROLL_ID}\"}"`
+  SCROLL_ID=`echo "${RESPONSE}" | jq -r '._scroll_id // empty'`
+  HITS=`echo "${RESPONSE}" | jq -c '[.hits.hits[]._source]'`
+done
+
+if [[ -n "${SCROLL_ID}" ]]; then
+  curl -s -XDELETE "${ES_HOST}/_search/scroll" \
+    -H "${ES_AUTH}" \
+    -H "Content-Type: application/json" \
+    -d "{\"scroll_id\": [\"${SCROLL_ID}\"]}" > /dev/null
+fi
+
+TOTAL_DOCS=`jq 'length' "${ALL_DOCS_FILE}"`
+echo "Fetched ${TOTAL_DOCS} documents for today."
+
+if [[ "${TOTAL_DOCS}" -eq 0 ]]; then
+  rm -f "${ALL_DOCS_FILE}"
   echo "No vulnerabilities found for today."
   exit 0
 fi
 
-TOTAL_VULNS=`echo "${VULN_IDS}" | wc -l | tr -d ' '`
+# Group the bulk-fetched documents by unique Snyk vulnerability ID locally,
+# then write one file per CVE/GHSA (skipping vulns with no CVE or GHSA)
+TOTAL_VULNS=`jq '[.[].identifiers.id] | unique | length' "${ALL_DOCS_FILE}"`
 echo "Found ${TOTAL_VULNS} unique Snyk vulnerability IDs."
 
 COUNT=0
 SKIPPED=0
 
-while IFS= read -r SNYK_ID; do
-  [[ -z "${SNYK_ID}" ]] && continue
+while IFS= read -r GROUP; do
   COUNT=$((COUNT + 1))
 
-  # Fetch all documents for this Snyk ID
-  DOCS_RESPONSE=`curl -s -X POST "${ES_HOST}/${ES_INDEX}/_search" \
-    -H "${ES_AUTH}" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"size\": 10000,
-      \"query\": {
-        \"bool\": {
-          \"filter\": [
-            {
-              \"term\": {
-                \"identifiers.id\": \"${SNYK_ID}\"
-              }
-            },
-            {
-              \"range\": {
-                \"date\": {
-                  \"gte\": \"now/d\",
-                  \"lte\": \"now/d\"
-                }
-              }
-            }
-          ]
-        }
-      }
-    }"`
-
-  DOCS=`echo "${DOCS_RESPONSE}" | jq '[.hits.hits[]._source]'`
-
-  # Extract first CVE from the first document
-  CVE=`echo "${DOCS}" | jq -r '.[0].identifiers.CVE | if type == "array" then .[0] elif type == "string" then . else null end // empty'`
-  GHSA=`echo "${DOCS}" | jq -r '.[0].identifiers.GHSA | if type == "array" then .[0] elif type == "string" then . else null end // empty'`
+  SNYK_ID=`echo "${GROUP}" | jq -r '.[0].identifiers.id | if type == "array" then .[0] else . end'`
+  CVE=`echo "${GROUP}" | jq -r '.[0].identifiers.CVE | if type == "array" then .[0] elif type == "string" then . else null end // empty'`
+  GHSA=`echo "${GROUP}" | jq -r '.[0].identifiers.GHSA | if type == "array" then .[0] elif type == "string" then . else null end // empty'`
 
   if [[ -z "${CVE:-}" && -z "${GHSA:-}" ]]; then
     SKIPPED=$((SKIPPED + 1))
@@ -216,10 +216,12 @@ while IFS= read -r SNYK_ID; do
   fi
 
   OUTPUT_FILE="${TMPDIR}/${CVE:-${GHSA}}.json"
-  echo "${DOCS}" > "${OUTPUT_FILE}"
+  echo "${GROUP}" > "${OUTPUT_FILE}"
   echo "[${COUNT}/${TOTAL_VULNS}] Saved ${SNYK_ID} -> ${OUTPUT_FILE}"
 
-done <<< "${VULN_IDS}"
+done < <(jq -c 'group_by(.identifiers.id)[]' "${ALL_DOCS_FILE}")
+
+rm -f "${ALL_DOCS_FILE}"
 
 echo ""
 echo "Phase 1 complete. $((COUNT - SKIPPED)) CVE files written, ${SKIPPED} skipped (no CVE or GHSA)."

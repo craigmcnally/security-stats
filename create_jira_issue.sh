@@ -83,7 +83,7 @@ fi
 
 if [[ "${OVERVIEW}" == "" && "${GHSA}" != "" ]]; then
   echo "No overview found, retrieving one from GitHub..."
-  DESCRIPTION=$(curl -s "https://api.github.com/advisories/${GHSA}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" | jq -r '.[0].description // ""')
+  DESCRIPTION=$(curl -s "https://api.github.com/advisories/${GHSA}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2026-03-10" | jq -r '.description // ""')
   DELIM="## Impact"
   OVERVIEW=$(echo "${DESCRIPTION%%$DELIM*}" | sed 's/^## Summary//' | sed '/^$/d')
 fi

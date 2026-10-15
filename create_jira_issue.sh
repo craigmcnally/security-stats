@@ -69,6 +69,13 @@ AFFECTING=$(echo "${FIRST_DOC}" | jq -r '.name // ""')
 TITLE=$(echo "${FIRST_DOC}"     | jq -r '.title // ""')
 OVERVIEW=$(echo "${FIRST_DOC}"  | jq -r '.overview // ""' | sed 's/^## Overview$//' | sed '/^$/d')
 
+# Jira label for the severity (critical/high/medium/low). Leave empty if unrecognized.  Lowercase the string to ensure consistency.
+SEVERITY_LABEL="${SEVERITY,,}"
+case "${SEVERITY_LABEL}" in
+  critical|high|medium|low) ;;
+  *) SEVERITY_LABEL="" ;;
+esac
+
 if [[ "${OVERVIEW}" == "" && "${CVE}" != "" ]]; then
   echo "No overview found, retrieving one from nvd.nist.gov..."
   OVERVIEW=$(curl -s "https://services.nvd.nist.gov/rest/json/cves/2.0?cveIds=${CVE}" | jq -r '.vulnerabilities[0].cve.descriptions[0].value // ""' | sed '/^$/d')
@@ -137,8 +144,12 @@ DESCRIPTION=`jq -rn \
 PAYLOAD=`jq -n \
   --arg summary     "${SUMMARY}" \
   --arg description "${DESCRIPTION}" \
+  --arg sevlabel    "${SEVERITY_LABEL}" \
   --slurpfile tmpl  "${TEMPLATE_FILE}" \
-  '$tmpl[0] | .fields.summary = $summary | .fields.description = $description'`
+  '$tmpl[0]
+   | .fields.summary = $summary
+   | .fields.description = $description
+   | if $sevlabel != "" then .fields.labels += [$sevlabel] else . end'`
 
 # ------------------------------------------------------------
 # Show draft and prompt for confirmation
@@ -149,6 +160,7 @@ echo " DRAFT JIRA ISSUE"
 echo "================================================================"
 echo ""
 echo "Summary: ${SUMMARY}"
+echo "Labels: $(echo "${PAYLOAD}" | jq -r '.fields.labels | join(", ")')"
 echo ""
 echo "Description:"
 echo "${DESCRIPTION}"

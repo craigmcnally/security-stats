@@ -237,7 +237,7 @@ echo "=== Phase 2: Checking CVEs against Jira ==="
 # Search all Jira projects for a given term, return total hits
 jira_search() {
   local CVE=`printf '%s' "$1" | sed 's/"/\\"/g'`
-  local QUERY="text ~ \"${CVE}\""
+  local QUERY="project = SECURITY AND text ~ \"${CVE}\""
 
   if [[ -n "$2" ]]; then
     local SNYK_ID=`printf '%s' "$2" | sed 's/"/\\"/g'`

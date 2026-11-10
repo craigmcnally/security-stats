@@ -35,6 +35,8 @@ SNYK_HOST="${SNYK_HOST:-https://app.snyk.io}"
 # Required.
 #X_CSRF_TOKEN
 
+INSERT_BACKOFF="${INSERT_BACKOFF:-2}"
+
 #================================================================
 
 usage() {
@@ -49,8 +51,23 @@ Fetch vulnerabilities from Snyk and insert them into Elasticsearch.
            Phase 1 runs and writes ./snyk-vulns.<timestamp>.es
 
 Required environment variables: SNYK_ID, X_CSRF_TOKEN, ES_API_KEY
-Optional environment variables: ES_HOST, ES_INDEX, SNYK_HOST
+Optional environment variables: ES_HOST, ES_INDEX, SNYK_HOST, INSERT_BACKOFF
 EOF
+}
+
+check_heap_and_pause() {
+  if [[ ${#FUNCNAME[@]} -ge 10 ]]; then 
+    return
+  fi
+
+  for j in `curl "${ES_HOST}/_nodes/stats/jvm" -H "${ES_AUTH}" -s | jq .nodes[].jvm.mem.heap_used_percent`; do
+    if [[ ${j} -ge 75 ]]; then
+      echo "wait"
+      sleep ${INSERT_BACKOFF}
+      check_heap_and_pause
+      break
+    fi
+  done
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -255,6 +272,7 @@ fi
 
 echo "Inserting data into Elasticsearch..."
 for i in `ls ${PARTS_PREFIX}*`; do
+  check_heap_and_pause
   printf '%s\t' ${i}
   curl -XPOST ${ES_HOST}/_bulk?pretty \
     -H "${ES_AUTH}" \

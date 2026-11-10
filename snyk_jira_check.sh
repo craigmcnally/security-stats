@@ -237,7 +237,7 @@ echo "=== Phase 2: Checking CVEs against Jira ==="
 # Search all Jira projects for a given term, return total hits
 jira_search() {
   local CVE=`printf '%s' "$1" | sed 's/"/\\"/g'`
-  local QUERY="project = SECURITY AND text ~ \"${CVE}\""
+  local QUERY="project = SECURITY AND (text ~ \"${CVE}\""
 
   if [[ -n "$2" ]]; then
     local SNYK_ID=`printf '%s' "$2" | sed 's/"/\\"/g'`
@@ -249,7 +249,7 @@ jira_search() {
     QUERY="${QUERY} OR text ~ \"${GHSA}\""
   fi
 
-  QUERY="${QUERY} ORDER BY created DESC"
+  QUERY="${QUERY}) ORDER BY created DESC"
   curl --retry 3 --retry-delay 1 --retry-connrefused --retry-all-errors -sG "${JIRA_BASE_URL}/ex/jira/${JIRA_CLOUD_ID}/rest/api/3/search/jql" \
     -H "${JIRA_AUTH}" \
     -H "Content-Type: application/json" \
